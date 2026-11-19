@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerador de Etiquetas de Acesso</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- QRCode.js para geração local de QR Code a partir de links -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Estilos específicos para impressão em folha A4 */
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 10mm;
+            }
+
+            body {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            /* Oculta toda a interface de controle na hora da impressão */
+            .no-print {
+                display: none !important;
+            }
+
+            /* Ajusta o container de pré-visualização para ocupar 100% da folha */
+            #print-area-wrapper {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                border: none !important;
+                background: transparent !important;
+            }
+
+            #labels-grid {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 10px !important;
+                width: 100% !important;
+            }
+
+            /* Evita que uma etiqueta seja cortada ao meio entre duas páginas */
+            .access-label {
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+                box-shadow: none !important;
+            }
+        }
+
+        /* Customização sutil da barra de rolagem */
+        textarea::-webkit-scrollbar {
+            width: 8px;
+        }
+        textarea::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 6px;
+        }
+        textarea::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 6px;
+        }
+        textarea::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col antialiased selection:bg-blue-100 selection:text-blue-900">
+
+    <!-- Notificação Toast (Substitui alert()) -->
+    <div id="toast-notification" class="no-print fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none flex items-center gap-3 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-lg border border-slate-700 text-sm font-medium">
+        <span id="toast-icon" class="text-emerald-400">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+        </span>
+        <span id="toast-message">Ação realizada com sucesso!</span>
+    </div>
+
+    <!-- Cabeçalho Principal (Oculto na impressão) -->
+    <header class="no-print bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shadow-blue-200 shrink-0">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-lg sm:text-xl font-bold text-slate-900 leading-tight">Gerador de Etiquetas de Acesso</h1>
+                    <p class="text-xs text-slate-500 hidden sm:block">Crie, personalize e imprima credenciais em lote prontas para recorte</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 sm:gap-3">
+                <button type="button" id="btn-load-sample" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded-lg transition-colors cursor-pointer" title="Preencher com dados fictícios para teste">
+                    <svg class="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                    <span>Exemplo</span>
+                </button>
+
+                <button type="button" id="btn-import-data" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 active:bg-slate-100 rounded-lg transition-colors cursor-pointer" title="Importar backup de dados (.json)">
+                    <svg class="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    <span class="hidden sm:inline">Importar</span>
+                </button>
+                <input type="file" id="input-import-data" accept=".json,application/json" class="hidden">
+
+                <button type="button" id="btn-export-data" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 active:bg-slate-100 rounded-lg transition-colors cursor-pointer" title="Exportar dados e configurações (.json)">
+                    <svg class="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    <span class="hidden sm:inline">Exportar</span>
+                </button>
+
+                <button type="button" id="btn-print" class="inline-flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded-lg shadow-sm transition-all cursor-pointer">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                    <span>Imprimir Etiquetas</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Conteúdo Principal -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        
+        <!-- PAINEL DE CONFIGURAÇÃO (Oculto na impressão) -->
+        <section class="no-print bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6 mb-8">
+            
+            <!-- 1. IDENTIFICAÇÃO DO TIPO DE ACESSO (ACIMA) -->
+            <div class="pb-6 mb-6 border-b border-slate-100">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                    <label for="access-type" class="block text-sm font-bold text-slate-800 uppercase tracking-wide flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs flex items-center justify-center font-extrabold">1</span>
+                        Identificação do Tipo de Acesso
+                    </label>
+                    <span class="text-xs text-slate-400">Aparece como título principal no topo de cada etiqueta</span>
+                </div>
+                
+                <input type="text" id="access-type" value="Oxford English Testing" placeholder="Ex: Oxford English Testing, Wi-Fi Visitantes, Laboratório..." 
+                    class="w-full px-4 py-3 text-sm sm:text-base font-semibold text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                
+                <!-- Chips de Sugestões Rápidas -->
+                <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
+                    <span class="text-xs font-medium text-slate-500 mr-1">Sugestões:</span>
+                    <button type="button" class="chip-suggestion px-2.5 py-1 text-xs font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 rounded-full border border-slate-200 transition-colors cursor-pointer">Oxford English Testing</button>
+                    <button type="button" class="chip-suggestion px-2.5 py-1 text-xs font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 rounded-full border border-slate-200 transition-colors cursor-pointer">Oxford Placement Test</button>
+                    <button type="button" class="chip-suggestion px-2.5 py-1 text-xs font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 rounded-full border border-slate-200 transition-colors cursor-pointer">Acesso Laboratório de Informática</button>
+                </div>
+            </div>
+
+            <!-- 2. NOME DO ALUNO (DIRETAMENTE ACIMA DE USUÁRIOS) -->
+            <div class="pb-6 mb-6 border-b border-slate-100">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                    <label for="students-list" class="text-sm font-bold text-slate-800 uppercase tracking-wide flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs flex items-center justify-center font-extrabold">2</span>
+                        Nome do Aluno (Um por linha)
+                    </label>
+                    <div class="flex items-center gap-3">
+                        <label class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none" title="Exibe o campo Aluno mesmo nas linhas sem nome para preenchimento manual">
+                            <input type="checkbox" id="toggle-empty-student" class="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer">
+                            <span>Exibir linha em branco se vazio</span>
+                        </label>
+                        <span id="students-count-badge" class="px-2.5 py-0.5 text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-full">0 alunos</span>
+                        <button type="button" id="btn-clear-students" class="text-xs font-medium text-rose-600 hover:text-rose-700 hover:underline px-1.5 py-0.5 cursor-pointer">Limpar</button>
+                    </div>
+                </div>
+
+                <textarea id="students-list" rows="5" placeholder="Cole aqui a lista com os nomes dos alunos (um por linha, na mesma ordem dos usuários)...&#10;Exemplo:&#10;Ana Beatriz Silva&#10;Carlos Henrique Oliveira&#10;Mariana Costa Santos&#10;João Pedro Almeida" 
+                    class="w-full p-3.5 text-sm text-slate-800 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-y leading-relaxed"></textarea>
+                
+                <p class="mt-1.5 text-xs text-slate-500">
+                    Pareamento automático: a <strong>Linha 1</strong> dos nomes será combinada com a <strong>Linha 1</strong> dos usuários abaixo.
+                </p>
+            </div>
+
+            <!-- 3. DADOS DOS USUÁRIOS (Coluna Principal) + COMPLEMENTO & SENHA (Ao lado) -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-6 mb-6 border-b border-slate-100">
+                
+                <!-- Coluna Principal: Lista de Usuários (7 colunas no desktop) -->
+                <div class="lg:col-span-7 flex flex-col">
+                    <div class="flex items-center justify-between gap-2 mb-2">
+                        <label for="users-list" class="text-sm font-bold text-slate-800 uppercase tracking-wide flex items-center gap-2">
+                            <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs flex items-center justify-center font-extrabold">3</span>
+                            Lista de Usuários (Um por linha)
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <span id="users-count-badge" class="px-2.5 py-0.5 text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-full">0 usuários</span>
+                            <button type="button" id="btn-clear-users" class="text-xs font-medium text-rose-600 hover:text-rose-700 hover:underline px-1.5 py-0.5 cursor-pointer">Limpar</button>
+                        </div>
+                    </div>
+
+                    <textarea id="users-list" rows="7" placeholder="Cole aqui os logins ou nomes de usuários (um por linha)...&#10;Exemplo:&#10;ana.silva&#10;carlos.eduardo&#10;mariana.costa&#10;joao.pedro" 
+                        class="w-full flex-1 p-3.5 font-mono text-sm text-slate-800 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-y leading-relaxed"></textarea>
+                    
+                    <p id="users-helper-text" class="mt-2 text-xs text-slate-500">
+                        Dica: Você pode colar diretamente de uma coluna do Excel ou planilha. Linhas em branco são ignoradas automaticamente.
+                    </p>
+                </div>
+
+                <!-- Coluna Lateral: Complemento do Usuário + Senha (5 colunas no desktop) -->
+                <div class="lg:col-span-5 flex flex-col justify-between gap-5 bg-slate-50/70 p-4 sm:p-5 rounded-xl border border-slate-200/80">
+                    
+                    <!-- Campo Complemento do Usuário -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label for="user-complement" class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                                <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                                Complemento do Usuário <span class="text-xs font-normal text-slate-400">(opcional)</span>
+                            </label>
+                            
+                            <!-- Seletor Sufixo / Prefixo -->
+                            <div class="inline-flex rounded-lg bg-slate-200/80 p-0.5 text-xs font-medium">
+                                <button type="button" id="btn-mode-suffix" class="px-2.5 py-1 rounded-md bg-white text-slate-900 shadow-xs transition-all cursor-pointer">Sufixo</button>
+                                <button type="button" id="btn-mode-prefix" class="px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition-all cursor-pointer">Prefixo</button>
+                            </div>
+                        </div>
+
+                        <input type="text" id="user-complement" placeholder="Ex: @escola.com.br ou @empresa.local" 
+                            class="w-full px-3.5 py-2.5 font-mono text-sm text-slate-800 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                        
+                        <!-- Pré-visualização em tempo real do complemento -->
+                        <div class="mt-2 flex items-center gap-1.5 text-xs text-slate-600 bg-white px-3 py-1.5 rounded-lg border border-slate-200">
+                            <span class="text-slate-400 shrink-0">Resultado:</span>
+                            <span id="complement-preview" class="font-mono font-semibold text-blue-700 truncate">usuario</span>
+                        </div>
+                    </div>
+
+                    <hr class="border-slate-200">
+
+                    <!-- Campo Senha -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label for="access-password" class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                                <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                                Senha de Acesso
+                            </label>
+                        </div>
+
+                        <!-- Alternador: Senha Única vs Senha na Lista -->
+                        <div class="grid grid-cols-2 gap-1.5 p-1 bg-slate-200/80 rounded-xl mb-2.5 text-xs font-medium">
+                            <button type="button" id="btn-pass-single" class="py-1.5 px-2 rounded-lg bg-white text-slate-900 shadow-xs transition-all cursor-pointer text-center">
+                                Senha única p/ todos
+                            </button>
+                            <button type="button" id="btn-pass-individual" class="py-1.5 px-2 rounded-lg text-slate-600 hover:text-slate-900 transition-all cursor-pointer text-center">
+                                Separada na lista
+                            </button>
+                        </div>
+
+                        <!-- Input para senha única -->
+                        <div id="single-password-container">
+                            <input type="text" id="access-password" placeholder="Ex: Mudar@2026 (ou deixe vazio)" 
+                                class="w-full px-3.5 py-2.5 font-mono text-sm text-slate-800 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                            <p class="mt-1.5 text-[11px] text-slate-500">Deixe em branco caso o acesso não exija senha ou seja preenchida à mão.</p>
+                        </div>
+
+                        <!-- Instrução para senha individual na lista -->
+                        <div id="individual-password-info" class="hidden bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+                            <p class="font-semibold mb-1">Modo Individual Ativo:</p>
+                            <p>Na lista ao lado, informe usuário e senha separados por <strong>vírgula</strong>, <strong>ponto e vírgula</strong> ou <strong>TAB (Excel)</strong>.</p>
+                            <code class="block mt-1.5 bg-white/80 px-2 py-1 rounded border border-amber-200 font-mono text-[11px]">ana.silva; Senha123</code>
+                        </div>
+                    </div>
+
+                    <hr class="border-slate-200">
+
+                    <!-- Campo Organisation ID -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label for="org-id" class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                                <svg class="w-4 h-4 text-[#43689b]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                                Organisation ID <span class="text-xs font-normal text-slate-400">(opcional)</span>
+                            </label>
+                            <label class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer select-none">
+                                <input type="checkbox" id="toggle-org-id" checked class="w-3.5 h-3.5 text-[#43689b] rounded border-slate-300 focus:ring-blue-500 cursor-pointer">
+                                <span>Exibir linha</span>
+                            </label>
+                        </div>
+                        <input type="text" id="org-id" placeholder="Ex: ORG-12345 (ou deixe vazio p/ placeholder)" 
+                            class="w-full px-3.5 py-2.5 font-mono text-sm text-slate-800 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- 4. PERSONALIZAÇÃO VISUAL DA ETIQUETA -->
+            <div>
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs flex items-center justify-center font-extrabold">4</span>
+                    <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wide">Personalização Visual, QR Code e Impressão</h2>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+                    
+                    <!-- Tamanho da Etiqueta -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1.5">Tamanho / Colunas no A4</label>
+                        <div class="grid grid-cols-3 gap-1 p-1 bg-slate-100 border border-slate-200 rounded-xl text-xs font-medium">
+                            <button type="button" data-size="small" class="btn-size py-2 rounded-lg text-slate-600 hover:text-slate-900 transition-all cursor-pointer">Pequena</button>
+                            <button type="button" data-size="medium" class="btn-size py-2 rounded-lg bg-white text-blue-700 font-semibold shadow-xs transition-all cursor-pointer">Média</button>
+                            <button type="button" data-size="large" class="btn-size py-2 rounded-lg text-slate-600 hover:text-slate-900 transition-all cursor-pointer">Grande</button>
+                        </div>
+                    </div>
+
+                    <!-- Cor de Destaque -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1.5">Cor de Destaque</label>
+                        <div class="flex items-center gap-2 h-[38px] px-3 bg-slate-50 border border-slate-200 rounded-xl">
+                            <button type="button" data-color="blue" class="btn-color w-6 h-6 rounded-full bg-blue-600 ring-2 ring-offset-2 ring-blue-600 transition-all cursor-pointer" title="Azul Profissional"></button>
+                            <button type="button" data-color="emerald" class="btn-color w-6 h-6 rounded-full bg-emerald-600 hover:scale-110 transition-all cursor-pointer" title="Verde Esmeralda"></button>
+                            <button type="button" data-color="indigo" class="btn-color w-6 h-6 rounded-full bg-indigo-600 hover:scale-110 transition-all cursor-pointer" title="Índigo"></button>
+                            <button type="button" data-color="slate" class="btn-color w-6 h-6 rounded-full bg-slate-800 hover:scale-110 transition-all cursor-pointer" title="Preto / Cinza Econômico"></button>
+                            <span id="color-label" class="ml-auto text-xs font-medium text-slate-600">Azul</span>
+                        </div>
+                    </div>
+
+                    <!-- Upload de Imagem QR Code -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="block text-xs font-semibold text-slate-600">QR Code</span>
+                            <div class="flex items-center gap-2">
+                                <div class="inline-flex rounded-md bg-slate-200/80 p-0.5 text-[10px] font-semibold">
+                                    <button type="button" id="btn-qr-mode-link" class="px-1.5 py-0.5 rounded bg-white text-slate-900 shadow-2xs transition-all cursor-pointer">Link</button>
+                                    <button type="button" id="btn-qr-mode-upload" class="px-1.5 py-0.5 rounded text-slate-600 hover:text-slate-900 transition-all cursor-pointer">Imagem</button>
+                                </div>
+                                <button type="button" id="btn-remove-qr" class="hidden text-[11px] font-medium text-rose-600 hover:underline cursor-pointer">Limpar</button>
+                            </div>
+                        </div>
+
+                        <!-- Modo Link (Gerar QR Code automaticamente) -->
+                        <div id="qr-link-container" class="flex items-center gap-1.5">
+                            <input type="url" id="qr-link-input" placeholder="https://exemplo.com" 
+                                class="w-full h-[38px] px-2.5 text-xs text-slate-800 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                            <img id="qr-link-mini-preview" src="" alt="Miniatura QR" class="hidden w-[38px] h-[38px] p-0.5 object-contain rounded-xl border border-slate-200 bg-white shrink-0">
+                        </div>
+
+                        <!-- Modo Upload de Imagem -->
+                        <label id="qr-upload-container" for="qr-upload" class="hidden flex items-center justify-between gap-2 h-[38px] px-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl cursor-pointer transition-colors">
+                            <span id="qr-upload-label" class="text-xs font-medium text-slate-700 truncate flex items-center gap-1.5">
+                                <svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                                <span>Enviar QR Code</span>
+                            </span>
+                            <img id="qr-mini-preview" src="" alt="Miniatura QR" class="hidden w-6 h-6 object-contain rounded border border-slate-200 bg-white shrink-0">
+                            <input type="file" id="qr-upload" accept="image/*" class="hidden">
+                        </label>
+                    </div>
+
+                    <!-- Exibir Numeração -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1.5">Numeração da Etiqueta</label>
+                        <label class="flex items-center justify-between h-[38px] px-3.5 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
+                            <span class="text-xs font-medium text-slate-700">Mostrar número (#01)</span>
+                            <input type="checkbox" id="toggle-icons" checked class="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer">
+                        </label>
+                    </div>
+
+                    <!-- Observação de Rodapé -->
+                    <div>
+                        <label for="footer-note" class="block text-xs font-semibold text-slate-600 mb-1.5">Observação de Rodapé (opcional)</label>
+                        <input type="text" id="footer-note" value="" placeholder="Ex: Mantenha em local seguro" 
+                            class="w-full h-[38px] px-3 text-xs text-slate-800 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+
+                </div>
+            </div>
+
+        </section>
+
+        <!-- BARRA DE STATUS DA PRÉ-VISUALIZAÇÃO (Oculta na impressão) -->
+        <div class="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 px-1">
+            <div class="flex items-center gap-2">
+                <h2 class="text-base font-bold text-slate-800">Pré-visualização das Etiquetas</h2>
+                <span id="preview-summary" class="text-xs font-medium text-slate-500 bg-white px-2.5 py-1 rounded-full border border-slate-200">
+                    Pronto para impressão em A4
+                </span>
+            </div>
+            <p class="text-xs text-slate-500 flex items-center gap-1.5">
+                <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z"></path></svg>
+                Bordas pontilhadas indicam a guia de recorte
+            </p>
+        </div>
+
+        <!-- ÁREA DE PRÉ-VISUALIZAÇÃO / IMPRESSÃO -->
+        <div id="print-area-wrapper" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 min-h-[320px]">
+            
+            <!-- Estado Vazio (Exibido quando não há usuários digitados) -->
+            <div id="empty-state" class="no-print flex flex-col items-center justify-center text-center py-14 px-4">
+                <div class="w-16 h-16 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-4">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-base font-bold text-slate-800 mb-1">Nenhuma etiqueta gerada ainda</h3>
+                <p class="text-sm text-slate-500 max-w-md mb-5">
+                    Cole a lista de usuários no campo acima para visualizar as etiquetas automaticamente, ou clique no botão abaixo para carregar um exemplo.
+                </p>
+                <button type="button" id="btn-empty-sample" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors cursor-pointer">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    Carregar Dados de Exemplo
+                </button>
+            </div>
+
+            <!-- Grade de Etiquetas -->
+            <div id="labels-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- As etiquetas são renderizadas dinamicamente via JavaScript -->
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Rodapé da Aplicação (Oculto na impressão) -->
+    <footer class="no-print border-t border-slate-200 bg-white py-4 mt-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+            <p>Gerador de Etiquetas de Acesso &bull; Formatação otimizada para impressão em papel A4.</p>
+            <p>Processamento 100% local no seu navegador (seus dados não são enviados para nenhum servidor).</p>
+        </div>
+    </footer>
+
+    <!-- Lógica da Aplicação -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const CACHE_STORAGE_KEY = 'gerador_etiquetas_acesso_v1';
+
+            // Estado central da aplicação
+            const state = {
+                accessType: 'Oxford English Testing',
+                rawStudents: '',
+                showEmptyStudentField: false,
+                rawUsers: '',
+                complement: '',
+                complementMode: 'suffix', // 'suffix' | 'prefix'
+                passwordMode: 'single',   // 'single' | 'individual'
+                singlePassword: '',
+                orgId: '',
+                showOrgId: true,
+                qrMode: 'link',           // 'link' | 'upload'
+                qrLink: '',
+                qrCodeUrl: '',
+                qrFileName: '',
+                size: 'medium',           // 'small' | 'medium' | 'large'
+                color: 'blue',            // 'blue' | 'emerald' | 'indigo' | 'slate'
+                showIcons: true,
+                footerNote: ''
+            };
+
+            // Paletas de cores disponíveis para o destaque da etiqueta
+            const colorThemes = {
+                blue: {
+                    name: 'Azul',
+                    accentText: 'text-blue-700',
+                    badgeBg: 'bg-blue-50 text-blue-700 border-blue-200'
+                },
+                emerald: {
+                    name: 'Verde',
+                    accentText: 'text-emerald-700',
+                    badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                },
+                indigo: {
+                    name: 'Índigo',
+                    accentText: 'text-indigo-700',
+                    badgeBg: 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                },
+                slate: {
+                    name: 'Preto/Cinza',
+                    accentText: 'text-slate-800',
+                    badgeBg: 'bg-slate-100 text-slate-700 border-slate-300'
+                }
+            };
+
+            // Referências aos elementos do DOM
+            const els = {
+                accessType: document.getElementById('access-type'),
+                studentsList: document.getElementById('students-list'),
+                toggleEmptyStudent: document.getElementById('toggle-empty-student'),
+                studentsCountBadge: document.getElementById('students-count-badge'),
+                usersList: document.getElementById('users-list'),
+                userComplement: document.getElementById('user-complement'),
+                complementPreview: document.getElementById('complement-preview'),
+                accessPassword: document.getElementById('access-password'),
+                orgId: document.getElementById('org-id'),
+                toggleOrgId: document.getElementById('toggle-org-id'),
+                footerNote: document.getElementById('footer-note'),
+                toggleIcons: document.getElementById('toggle-icons'),
+                btnQrModeLink: document.getElementById('btn-qr-mode-link'),
+                btnQrModeUpload: document.getElementById('btn-qr-mode-upload'),
+                qrLinkContainer: document.getElementById('qr-link-container'),
+                qrLinkInput: document.getElementById('qr-link-input'),
+                qrLinkMiniPreview: document.getElementById('qr-link-mini-preview'),
+                qrUploadContainer: document.getElementById('qr-upload-container'),
+                qrUpload: document.getElementById('qr-upload'),
+                qrUploadLabel: document.getElementById('qr-upload-label'),
+                qrMiniPreview: document.getElementById('qr-mini-preview'),
+                btnRemoveQr: document.getElementById('btn-remove-qr'),
+                usersCountBadge: document.getElementById('users-count-badge'),
+                previewSummary: document.getElementById('preview-summary'),
+                labelsGrid: document.getElementById('labels-grid'),
+                emptyState: document.getElementById('empty-state'),
+                btnModeSuffix: document.getElementById('btn-mode-suffix'),
+                btnModePrefix: document.getElementById('btn-mode-prefix'),
+                btnPassSingle: document.getElementById('btn-pass-single'),
+                btnPassIndividual: document.getElementById('btn-pass-individual'),
+                singlePasswordContainer: document.getElementById('single-password-container'),
+                individualPasswordInfo: document.getElementById('individual-password-info'),
+                usersHelperText: document.getElementById('users-helper-text'),
+                colorLabel: document.getElementById('color-label'),
+                toast: document.getElementById('toast-notification'),
+                toastMessage: document.getElementById('toast-message')
+            };
+
+            // Escapa caracteres HTML para evitar quebra de layout
+            function escapeHTML(str) {
+                if (str === null || str === undefined) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            // Exibe mensagem de feedback temporária (substitui alert)
+            let toastTimeout;
+            function showToast(msg) {
+                els.toastMessage.textContent = msg;
+                els.toast.classList.remove('translate-y-20', 'opacity-0');
+                clearTimeout(toastTimeout);
+                toastTimeout = setTimeout(() => {
+                    els.toast.classList.add('translate-y-20', 'opacity-0');
+                }, 3000);
+            }
+
+            // Salva o estado atual no cache do navegador
+            function saveStateToCache() {
+                try {
+                    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(state));
+                } catch (err) {
+                    console.warn('Não foi possível salvar no cache local:', err);
+                }
+            }
+
+            // Aplica um objeto de estado na interface visual e nos inputs
+            function applyStateToUI() {
+                els.accessType.value = state.accessType || '';
+                els.studentsList.value = state.rawStudents || '';
+                els.toggleEmptyStudent.checked = Boolean(state.showEmptyStudentField);
+                els.usersList.value = state.rawUsers || '';
+                els.userComplement.value = state.complement || '';
+                els.accessPassword.value = state.singlePassword || '';
+                els.orgId.value = state.orgId || '';
+                els.toggleOrgId.checked = state.showOrgId !== false;
+                els.footerNote.value = state.footerNote || '';
+                els.toggleIcons.checked = state.showIcons !== false;
+                els.qrLinkInput.value = state.qrLink || '';
+
+                setQrMode(state.qrMode === 'upload' ? 'upload' : 'link', false);
+
+                // Atualiza visual do QR Code carregado
+                updateQrPreviewUI();
+
+                // Atualiza botões de tamanho
+                document.querySelectorAll('.btn-size').forEach(b => {
+                    if (b.dataset.size === state.size) {
+                        b.className = 'btn-size py-2 rounded-lg bg-white text-blue-700 font-semibold shadow-xs transition-all cursor-pointer';
+                    } else {
+                        b.className = 'btn-size py-2 rounded-lg text-slate-600 hover:text-slate-900 transition-all cursor-pointer';
+                    }
+                });
+
+                // Atualiza botões de cor
+                const ringMap = {
+                    blue: 'ring-blue-600',
+                    emerald: 'ring-emerald-600',
+                    indigo: 'ring-indigo-600',
+                    slate: 'ring-slate-800'
+                };
+                const activeColor = colorThemes[state.color] ? state.color : 'blue';
+                document.querySelectorAll('.btn-color').forEach(b => {
+                    b.classList.remove('ring-2', 'ring-offset-2', 'ring-blue-600', 'ring-emerald-600', 'ring-indigo-600', 'ring-slate-800');
+                    if (b.dataset.color === activeColor) {
+                        b.classList.add('ring-2', 'ring-offset-2', ringMap[activeColor]);
+                    }
+                });
+                els.colorLabel.textContent = colorThemes[activeColor].name;
+
+                setComplementMode(state.complementMode === 'prefix' ? 'prefix' : 'suffix', false);
+                setPasswordMode(state.passwordMode === 'individual' ? 'individual' : 'single', false);
+            }
+
+            // Gera Data URL de um QR Code localmente a partir de um link/texto
+            function generateQrDataUrlFromText(text) {
+                const trimmed = (text || '').trim();
+                if (!trimmed) return '';
+                if (typeof QRCode === 'undefined') return '';
+
+                try {
+                    const tempDiv = document.createElement('div');
+                    const qr = new QRCode(tempDiv, {
+                        text: trimmed,
+                        width: 240,
+                        height: 240,
+                        colorDark: '#0f172a',
+                        colorLight: '#ffffff',
+                        correctLevel: QRCode.CorrectLevel.M
+                    });
+                    const canvas = tempDiv.querySelector('canvas');
+                    if (canvas) {
+                        return canvas.toDataURL('image/png');
+                    }
+                    const img = tempDiv.querySelector('img');
+                    return img ? img.src : '';
+                } catch (err) {
+                    console.warn('Falha ao gerar QR Code:', err);
+                    return '';
+                }
+            }
+
+            // Atualiza miniaturas e botão de limpar do QR Code
+            function updateQrPreviewUI() {
+                if (state.qrMode === 'link') {
+                    if (state.qrCodeUrl && state.qrLink.trim()) {
+                        els.qrLinkMiniPreview.src = state.qrCodeUrl;
+                        els.qrLinkMiniPreview.classList.remove('hidden');
+                        els.btnRemoveQr.classList.remove('hidden');
+                    } else {
+                        els.qrLinkMiniPreview.src = '';
+                        els.qrLinkMiniPreview.classList.add('hidden');
+                        els.btnRemoveQr.classList.add('hidden');
+                    }
+                } else {
+                    if (state.qrCodeUrl) {
+                        els.qrUploadLabel.innerHTML = `
+                            <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                            <span class="truncate">${escapeHTML(state.qrFileName || 'qrcode-carregado.png')}</span>
+                        `;
+                        els.qrMiniPreview.src = state.qrCodeUrl;
+                        els.qrMiniPreview.classList.remove('hidden');
+                        els.btnRemoveQr.classList.remove('hidden');
+                    } else {
+                        els.qrUpload.value = '';
+                        els.qrUploadLabel.innerHTML = `
+                            <svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                            <span>Enviar QR Code</span>
+                        `;
+                        els.qrMiniPreview.src = '';
+                        els.qrMiniPreview.classList.add('hidden');
+                        els.btnRemoveQr.classList.add('hidden');
+                    }
+                }
+            }
+
+            // Alterna entre gerar QR Code por Link ou enviar Imagem
+            function setQrMode(mode, shouldRender = true) {
+                state.qrMode = mode;
+                if (mode === 'link') {
+                    els.btnQrModeLink.className = 'px-1.5 py-0.5 rounded bg-white text-slate-900 shadow-2xs transition-all cursor-pointer';
+                    els.btnQrModeUpload.className = 'px-1.5 py-0.5 rounded text-slate-600 hover:text-slate-900 transition-all cursor-pointer';
+                    els.qrLinkContainer.classList.remove('hidden');
+                    els.qrUploadContainer.classList.add('hidden');
+                    state.qrCodeUrl = generateQrDataUrlFromText(state.qrLink);
+                } else {
+                    els.btnQrModeUpload.className = 'px-1.5 py-0.5 rounded bg-white text-slate-900 shadow-2xs transition-all cursor-pointer';
+                    els.btnQrModeLink.className = 'px-1.5 py-0.5 rounded text-slate-600 hover:text-slate-900 transition-all cursor-pointer';
+                    els.qrUploadContainer.classList.remove('hidden');
+                    els.qrLinkContainer.classList.add('hidden');
+                    if (!state.qrFileName) {
+                        state.qrCodeUrl = '';
+                    }
+                }
+                updateQrPreviewUI();
+                if (shouldRender) renderLabels();
+            }
+
+            // Carrega dados salvos anteriormente no cache do navegador
+            function loadStateFromCache() {
+                try {
+                    const cached = localStorage.getItem(CACHE_STORAGE_KEY);
+                    if (!cached) return;
+                    const parsed = JSON.parse(cached);
+                    if (parsed && typeof parsed === 'object') {
+                        Object.assign(state, parsed);
+                        applyStateToUI();
+                    }
+                } catch (err) {
+                    console.warn('Erro ao restaurar cache local:', err);
+                }
+            }
+
+            // Aplica prefixo ou sufixo ao usuário base
+            function formatFullUsername(baseUser) {
+                const cleanUser = baseUser.trim();
+                const comp = state.complement;
+                if (!cleanUser) return '';
+                if (!comp) return cleanUser;
+                return state.complementMode === 'prefix' ? `${comp}${cleanUser}` : `${cleanUser}${comp}`;
+            }
+
+            // Atualiza o exemplo de resultado do complemento
+            function updateComplementPreview() {
+                const sampleBase = 'usuario';
+                const sampleResult = formatFullUsername(sampleBase);
+                els.complementPreview.textContent = sampleResult || 'usuario';
+            }
+
+            // Faz o parsing sincronizado das linhas de alunos e usuários
+            function parseLabelsData() {
+                const studentLines = state.rawStudents
+                    .split(/\r?\n/)
+                    .map(line => line.trim())
+                    .filter(line => line.length > 0);
+
+                const userLines = state.rawUsers
+                    .split(/\r?\n/)
+                    .map(line => line.trim())
+                    .filter(line => line.length > 0);
+
+                const totalCount = Math.max(studentLines.length, userLines.length);
+                const items = [];
+
+                for (let i = 0; i < totalCount; i++) {
+                    const studentName = studentLines[i] || '';
+                    const rawUserLine = userLines[i] || '';
+                    let baseUser = rawUserLine;
+                    let pass = state.singlePassword.trim();
+
+                    if (rawUserLine && state.passwordMode === 'individual') {
+                        const parts = rawUserLine.split(/\t|;|,/);
+                        baseUser = (parts[0] || '').trim();
+                        pass = parts.length > 1 ? parts.slice(1).join(';').trim() : '';
+                    }
+
+                    const fullUser = baseUser ? formatFullUsername(baseUser) : '';
+
+                    items.push({
+                        studentName,
+                        baseUser,
+                        fullUser,
+                        password: pass
+                    });
+                }
+
+                return {
+                    items,
+                    studentsCount: studentLines.length,
+                    usersCount: userLines.length
+                };
+            }
+
+            // Renderiza todas as etiquetas na grade
+            function renderLabels() {
+                updateComplementPreview();
+                const { items, studentsCount, usersCount } = parseLabelsData();
+
+                els.studentsCountBadge.textContent = `${studentsCount} ${studentsCount === 1 ? 'aluno' : 'alunos'}`;
+                els.usersCountBadge.textContent = `${usersCount} ${usersCount === 1 ? 'usuário' : 'usuários'}`;
+
+                if (items.length === 0) {
+                    els.emptyState.classList.remove('hidden');
+                    els.labelsGrid.classList.add('hidden');
+                    els.labelsGrid.innerHTML = '';
+                    els.previewSummary.textContent = 'Nenhuma etiqueta na fila';
+                    saveStateToCache();
+                    return;
+                }
+
+                els.emptyState.classList.add('hidden');
+                els.labelsGrid.classList.remove('hidden');
+
+                // Configura colunas e proporções por tamanho
+                let gridColsClass = 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4';
+                let cardPadding = 'p-4';
+                let titleTextClass = 'text-sm';
+                let labelTextClass = 'text-xs';
+                let inputBoxClass = 'h-8 px-2.5 text-xs';
+                let qrBoxClass = 'w-20 h-20';
+
+                if (state.size === 'small') {
+                    gridColsClass = 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3';
+                    cardPadding = 'p-3';
+                    titleTextClass = 'text-xs';
+                    labelTextClass = 'text-[11px]';
+                    inputBoxClass = 'h-7 px-2 text-[11px]';
+                    qrBoxClass = 'w-16 h-16';
+                } else if (state.size === 'large') {
+                    gridColsClass = 'grid-cols-1 md:grid-cols-2 gap-5';
+                    cardPadding = 'p-5';
+                    titleTextClass = 'text-base';
+                    labelTextClass = 'text-sm';
+                    inputBoxClass = 'h-10 px-3 text-sm';
+                    qrBoxClass = 'w-24 h-24';
+                }
+
+                els.labelsGrid.className = `grid ${gridColsClass}`;
+                els.previewSummary.textContent = `${items.length} ${items.length === 1 ? 'etiqueta gerada' : 'etiquetas geradas'} • Pronto para A4`;
+
+                const theme = colorThemes[state.color] || colorThemes.blue;
+                const accessTitle = escapeHTML(state.accessType.trim() || 'Acesso ao Sistema');
+                const footerText = escapeHTML(state.footerNote.trim());
+                const orgIdVal = state.orgId.trim();
+
+                const html = items.map((item, idx) => {
+                    const numStr = `#${String(idx + 1).padStart(2, '0')}`;
+                    const hasStudent = item.studentName.length > 0;
+                    const showStudentRow = hasStudent || state.showEmptyStudentField;
+
+                    const studentBlock = showStudentRow ? `
+                        <div class="mb-2.5 bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 flex items-center justify-between gap-2">
+                            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">Aluno:</span>
+                            ${hasStudent
+                                ? `<span class="text-xs font-bold text-slate-800 truncate">${escapeHTML(item.studentName)}</span>`
+                                : `<span class="flex-1 border-b border-dashed border-slate-300 h-3.5"></span>`
+                            }
+                        </div>
+                    ` : '';
+
+                    const qrContent = state.qrCodeUrl
+                        ? `<img src="${state.qrCodeUrl}" alt="QR Code" class="w-full h-full object-contain rounded">`
+                        : `<div class="flex flex-col items-center justify-center text-slate-300 select-none">
+                               <svg class="w-6 h-6 mb-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg>
+                               <span class="text-[8px] font-bold uppercase tracking-wider">QR Code</span>
+                           </div>`;
+
+                    const orgRow = state.showOrgId ? `
+                        <div class="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                            <div class="flex items-center gap-1.5 min-w-0">
+                                <span class="w-3.5 h-3.5 rounded-[3px] bg-[#43689b] text-white flex items-center justify-center shrink-0">
+                                    <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                                </span>
+                                <span class="text-[11px] font-bold text-slate-800 truncate">I have an organisation ID</span>
+                            </div>
+                            <div class="w-24 sm:w-28 h-7 px-2 bg-white border border-slate-300 rounded-md flex items-center shrink-0">
+                                ${orgIdVal
+                                    ? `<span class="font-mono text-xs font-medium text-slate-800 truncate">${escapeHTML(orgIdVal)}</span>`
+                                    : `<span class="text-[11px] text-slate-400 truncate">Organisation ID</span>`
+                                }
+                            </div>
+                        </div>
+                    ` : '';
+
+                    const footerBlock = footerText ? `
+                        <p class="mt-2 text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1.5 truncate">${footerText}</p>
+                    ` : '';
+
+                    return `
+                        <article class="access-label bg-white border border-dashed border-slate-300 rounded-xl ${cardPadding} flex flex-col justify-between shadow-2xs">
+                            <div>
+                                <!-- Cabeçalho da Etiqueta -->
+                                <div class="flex items-center justify-between gap-2 mb-2">
+                                    <h3 class="${titleTextClass} font-extrabold ${theme.accentText} leading-tight truncate">${accessTitle}</h3>
+                                    ${state.showIcons ? `<span class="font-mono text-[11px] font-semibold text-slate-400 shrink-0">${numStr}</span>` : ''}
+                                </div>
+
+                                ${studentBlock}
+
+                                <!-- Corpo: Username & Password reduzidos + QR Code ao lado -->
+                                <div class="flex items-center justify-between gap-2.5">
+                                    <div class="flex-1 min-w-0 space-y-2">
+                                        <div>
+                                            <label class="block ${labelTextClass} font-bold text-slate-800 mb-0.5">Username</label>
+                                            <div class="${inputBoxClass} w-full bg-white border border-slate-300 rounded-md flex items-center overflow-hidden">
+                                                ${item.fullUser
+                                                    ? `<span class="font-mono font-medium text-slate-800 truncate">${escapeHTML(item.fullUser)}</span>`
+                                                    : `<span class="text-slate-400">Username</span>`
+                                                }
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label class="block ${labelTextClass} font-bold text-slate-800 mb-0.5">Password</label>
+                                            <div class="${inputBoxClass} w-full bg-white border border-slate-300 rounded-md flex items-center overflow-hidden">
+                                                ${item.password
+                                                    ? `<span class="font-mono font-medium text-slate-800 truncate">${escapeHTML(item.password)}</span>`
+                                                    : `<span class="text-slate-400">Password</span>`
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Espaço dedicado ao QR Code -->
+                                    <div class="${qrBoxClass} shrink-0 border border-slate-200 bg-white rounded-lg p-1 flex items-center justify-center">
+                                        ${qrContent}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                ${orgRow}
+                                ${footerBlock}
+                            </div>
+                        </article>
+                    `;
+                }).join('');
+
+                els.labelsGrid.innerHTML = html;
+                saveStateToCache();
+            }
+
+            // Carrega dados de exemplo para demonstração
+            function loadSampleData() {
+                state.accessType = 'Oxford English Testing';
+                state.rawStudents = [
+                    'Ana Beatriz Silva',
+                    'Carlos Henrique Oliveira',
+                    'Fernanda Oliveira Santos',
+                    'Gabriel Santos Lima',
+                    'Juliana Martins Pereira',
+                    'Lucas Almeida Costa'
+                ].join('\n');
+                state.rawUsers = [
+                    'ana.beatriz',
+                    'carlos.henrique',
+                    'fernanda.oliveira',
+                    'gabriel.santos',
+                    'juliana.martins',
+                    'lucas.almeida'
+                ].join('\n');
+                state.complement = '@oet.edu.br';
+                state.complementMode = 'suffix';
+                state.passwordMode = 'single';
+                state.singlePassword = 'Oxford@2026';
+                state.orgId = 'ORG-94821';
+                state.showOrgId = true;
+                state.footerNote = '';
+
+                applyStateToUI();
+                renderLabels();
+                showToast('Dados de exemplo carregados!');
+            }
+
+            // Alterna Sufixo / Prefixo
+            function setComplementMode(mode, shouldRender = true) {
+                state.complementMode = mode;
+                if (mode === 'suffix') {
+                    els.btnModeSuffix.className = 'px-2.5 py-1 rounded-md bg-white text-slate-900 shadow-xs transition-all cursor-pointer';
+                    els.btnModePrefix.className = 'px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition-all cursor-pointer';
+                    els.userComplement.placeholder = 'Ex: @escola.com.br ou @empresa.local';
+                } else {
+                    els.btnModePrefix.className = 'px-2.5 py-1 rounded-md bg-white text-slate-900 shadow-xs transition-all cursor-pointer';
+                    els.btnModeSuffix.className = 'px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition-all cursor-pointer';
+                    els.userComplement.placeholder = 'Ex: DOMINIO\\ ou aluno_';
+                }
+                if (shouldRender) renderLabels();
+            }
+
+            // Alterna Modo de Senha (Única vs Individual)
+            function setPasswordMode(mode, shouldRender = true) {
+                state.passwordMode = mode;
+                if (mode === 'single') {
+                    els.btnPassSingle.className = 'py-1.5 px-2 rounded-lg bg-white text-slate-900 shadow-xs transition-all cursor-pointer text-center';
+                    els.btnPassIndividual.className = 'py-1.5 px-2 rounded-lg text-slate-600 hover:text-slate-900 transition-all cursor-pointer text-center';
+                    els.singlePasswordContainer.classList.remove('hidden');
+                    els.individualPasswordInfo.classList.add('hidden');
+                    els.usersHelperText.textContent = 'Dica: Você pode colar diretamente de uma coluna do Excel ou planilha. Linhas em branco são ignoradas automaticamente.';
+                } else {
+                    els.btnPassIndividual.className = 'py-1.5 px-2 rounded-lg bg-white text-slate-900 shadow-xs transition-all cursor-pointer text-center';
+                    els.btnPassSingle.className = 'py-1.5 px-2 rounded-lg text-slate-600 hover:text-slate-900 transition-all cursor-pointer text-center';
+                    els.singlePasswordContainer.classList.add('hidden');
+                    els.individualPasswordInfo.classList.remove('hidden');
+                    els.usersHelperText.textContent = 'Modo individual: Cole duas colunas do Excel (Usuário e Senha) ou separe cada linha com ponto e vírgula (;).';
+                }
+                if (shouldRender) renderLabels();
+            }
+
+            // Listeners de entrada de texto
+            els.accessType.addEventListener('input', (e) => {
+                state.accessType = e.target.value;
+                renderLabels();
+            });
+
+            els.studentsList.addEventListener('input', (e) => {
+                state.rawStudents = e.target.value;
+                renderLabels();
+            });
+
+            els.toggleEmptyStudent.addEventListener('change', (e) => {
+                state.showEmptyStudentField = e.target.checked;
+                renderLabels();
+            });
+
+            els.usersList.addEventListener('input', (e) => {
+                state.rawUsers = e.target.value;
+                renderLabels();
+            });
+
+            els.userComplement.addEventListener('input', (e) => {
+                state.complement = e.target.value;
+                renderLabels();
+            });
+
+            els.accessPassword.addEventListener('input', (e) => {
+                state.singlePassword = e.target.value;
+                renderLabels();
+            });
+
+            els.orgId.addEventListener('input', (e) => {
+                state.orgId = e.target.value;
+                renderLabels();
+            });
+
+            els.toggleOrgId.addEventListener('change', (e) => {
+                state.showOrgId = e.target.checked;
+                renderLabels();
+            });
+
+            els.footerNote.addEventListener('input', (e) => {
+                state.footerNote = e.target.value;
+                renderLabels();
+            });
+
+            els.toggleIcons.addEventListener('change', (e) => {
+                state.showIcons = e.target.checked;
+                renderLabels();
+            });
+
+            // Chips de sugestões do tipo de acesso
+            document.querySelectorAll('.chip-suggestion').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.accessType = btn.textContent.trim();
+                    els.accessType.value = state.accessType;
+                    renderLabels();
+                });
+            });
+
+            // Limpar lista de alunos
+            document.getElementById('btn-clear-students').addEventListener('click', () => {
+                state.rawStudents = '';
+                els.studentsList.value = '';
+                renderLabels();
+                showToast('Lista de alunos limpa.');
+            });
+
+            // Limpar lista de usuários
+            document.getElementById('btn-clear-users').addEventListener('click', () => {
+                state.rawUsers = '';
+                els.usersList.value = '';
+                renderLabels();
+                showToast('Lista de usuários limpa.');
+            });
+
+            // Alternadores de modo de complemento e senha
+            els.btnModeSuffix.addEventListener('click', () => setComplementMode('suffix'));
+            els.btnModePrefix.addEventListener('click', () => setComplementMode('prefix'));
+            els.btnPassSingle.addEventListener('click', () => setPasswordMode('single'));
+            els.btnPassIndividual.addEventListener('click', () => setPasswordMode('individual'));
+
+            // Seleção de tamanho da etiqueta
+            document.querySelectorAll('.btn-size').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.size = btn.dataset.size;
+                    applyStateToUI();
+                    renderLabels();
+                });
+            });
+
+            // Seleção de cor de destaque
+            document.querySelectorAll('.btn-color').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.color = btn.dataset.color;
+                    applyStateToUI();
+                    renderLabels();
+                });
+            });
+
+            // Alternadores de modo do QR Code (Link vs Imagem)
+            els.btnQrModeLink.addEventListener('click', () => setQrMode('link'));
+            els.btnQrModeUpload.addEventListener('click', () => setQrMode('upload'));
+
+            // Geração instantânea de QR Code ao digitar/colar um link
+            els.qrLinkInput.addEventListener('input', (e) => {
+                state.qrLink = e.target.value;
+                state.qrFileName = '';
+                state.qrCodeUrl = generateQrDataUrlFromText(state.qrLink);
+                updateQrPreviewUI();
+                renderLabels();
+            });
+
+            // Upload da imagem do QR Code (converte para Data URL para persistir na impressão/exportação)
+            els.qrUpload.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    state.qrCodeUrl = event.target.result;
+                    state.qrFileName = file.name;
+                    updateQrPreviewUI();
+                    renderLabels();
+                    showToast('Imagem do QR Code adicionada às etiquetas!');
+                };
+                reader.readAsDataURL(file);
+            });
+
+            // Remover/Limpar QR Code (Link ou Imagem)
+            els.btnRemoveQr.addEventListener('click', () => {
+                state.qrCodeUrl = '';
+                state.qrFileName = '';
+                state.qrLink = '';
+                els.qrLinkInput.value = '';
+                els.qrUpload.value = '';
+                updateQrPreviewUI();
+                renderLabels();
+                showToast('QR Code removido.');
+            });
+
+            // Remover imagem do QR Code
+            els.btnRemoveQr.addEventListener('click', () => {
+                state.qrCodeUrl = '';
+                state.qrFileName = '';
+                els.qrUpload.value = '';
+                els.qrUploadLabel.innerHTML = `
+                    <svg class="w-4 h-4 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    <span>Enviar QR Code</span>
+                `;
+                els.qrMiniPreview.src = '';
+                els.qrMiniPreview.classList.add('hidden');
+                els.btnRemoveQr.classList.add('hidden');
+                renderLabels();
+                showToast('Imagem do QR Code removida.');
+            });
+// ... existing code ... -->
+            // Botões Exemplo
+            document.getElementById('btn-load-sample').addEventListener('click', loadSampleData);
+            document.getElementById('btn-empty-sample').addEventListener('click', loadSampleData);
+
+            // Exportar dados e configurações em arquivo JSON
+            document.getElementById('btn-export-data').addEventListener('click', () => {
+                const payload = {
+                    version: 1,
+                    exportedAt: new Date().toISOString(),
+                    data: state
+                };
+                const jsonString = JSON.stringify(payload, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const dateTag = new Date().toISOString().slice(0, 10);
+                a.href = url;
+                a.download = `etiquetas-acesso-${dateTag}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                showToast('Dados exportados com sucesso!');
+            });
+
+            // Importar dados e configurações de arquivo JSON
+            const inputImportData = document.getElementById('input-import-data');
+            document.getElementById('btn-import-data').addEventListener('click', () => {
+                inputImportData.click();
+            });
+
+            inputImportData.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const parsed = JSON.parse(event.target.result);
+                        const importedState = parsed && parsed.data ? parsed.data : parsed;
+                        if (!importedState || typeof importedState !== 'object') {
+                            throw new Error('Formato inválido');
+                        }
+                        Object.assign(state, importedState);
+                        applyStateToUI();
+                        renderLabels();
+                        showToast('Dados importados com sucesso!');
+                    } catch (err) {
+                        showToast('Arquivo inválido. Selecione um backup .json válido.');
+                    } finally {
+                        inputImportData.value = '';
+                    }
+                };
+                reader.readAsText(file);
+            });
+
+            // Gera o documento HTML limpo pronto para impressão A4
+            function buildPrintableDocumentHTML(autoTriggerPrint = true) {
+                const gridHTML = els.labelsGrid.innerHTML;
+                const colsCount = 2;
+                const scriptOpen = '<' + 'script>';
+                const scriptClose = '</' + 'script>';
+
+                return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Imprimir Etiquetas - ${escapeHTML(state.accessType || 'Acesso')}</title>
+    <script src="https://cdn.tailwindcss.com">${scriptClose}
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #fff; margin: 0; padding: 12mm; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        #print-grid {
+            display: grid;
+            grid-template-columns: repeat(${colsCount}, minmax(0, 1fr));
+            gap: 10px;
+        }
+        .access-label {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+        @media print {
+            @page { size: A4 portrait; margin: 10mm; }
+            body { padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            .no-print-bar { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print-bar mb-4 p-3 bg-slate-100 border border-slate-300 rounded-lg flex items-center justify-between text-xs text-slate-700">
+        <span>Use <strong>Ctrl + P</strong> (ou <strong>Cmd + P</strong> no Mac) caso a janela de impressão não abra automaticamente.</span>
+        <button onclick="window.print()" class="px-3 py-1.5 bg-blue-600 text-white font-semibold rounded-md cursor-pointer">Imprimir Agora</button>
+    </div>
+    <div id="print-grid">${gridHTML}</div>
+    ${autoTriggerPrint ? `${scriptOpen}
+        window.onload = function() {
+            setTimeout(function() { window.focus(); window.print(); }, 500);
+        };
+    ${scriptClose}` : ''}
+</body>
+</html>`;
+            }
+
+            // Botão Imprimir (com suporte para janela popup e fallback para ambientes sandboxed)
+            document.getElementById('btn-print').addEventListener('click', () => {
+                const { items } = parseLabelsData();
+                if (items.length === 0) {
+                    showToast('Adicione pelo menos um aluno ou usuário antes de imprimir.');
+                    els.studentsList.focus();
+                    return;
+                }
+
+                const isInIframe = window.self !== window.top;
+                if (isInIframe) {
+                    const printWindow = window.open('', '_blank', 'width=960,height=720');
+                    if (printWindow) {
+                        printWindow.document.open();
+                        printWindow.document.write(buildPrintableDocumentHTML(true));
+                        printWindow.document.close();
+                        return;
+                    }
+                }
+
+                try {
+                    window.focus();
+                    window.print();
+                } catch (e) {
+                    showToast('Não foi possível abrir a impressão neste navegador.');
+                }
+            });
+
+            // Restaura cache salvo e inicializa a interface
+            loadStateFromCache();
+            renderLabels();
+        });
+    </script>
+</body>
+</html>
